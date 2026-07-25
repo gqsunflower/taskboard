@@ -1,0 +1,1865 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>タスクボード（担当者別ガントチャート）</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page-plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid-line: #e1e0d9;
+    --border: rgba(11,11,11,0.10);
+    --baseline: #c3c2b7;
+    --weekend-tint: rgba(11,11,11,0.035);
+    --today-line: #4a3aa7;
+    --s0: #2a78d6;
+    /* status colors: fixed, never themed */
+    --st-safe: #0ca30c;
+    --st-warn: #ec835a;
+    --st-overdue: #d03b3b;
+    --st-done: #9a988f;
+    --st-cancel: #524f48;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page-plane: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid-line: #2c2c2a;
+      --border: rgba(255,255,255,0.10);
+      --baseline: #383835;
+      --weekend-tint: rgba(255,255,255,0.05);
+      --s0: #3987e5;
+      --today-line: #9085e9;
+      --st-done: #77766f;
+      --st-cancel: #86847c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page-plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid-line: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --baseline: #383835;
+    --weekend-tint: rgba(255,255,255,0.05);
+    --s0: #3987e5;
+    --today-line: #9085e9;
+    --st-done: #77766f;
+    --st-cancel: #86847c;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  }
+  body { padding: 20px 24px 60px; }
+
+  header.app-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  header.app-header h1 { font-size: 19px; margin: 0 0 4px; }
+  header.app-header p.sub { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+  .local-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 10px; white-space: nowrap;
+  }
+  .local-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--st-safe); flex: none; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .toolbar .spacer { flex: 1; }
+  button {
+    font: inherit; cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface-1); color: var(--text-primary);
+    border-radius: 7px; padding: 7px 12px; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover { filter: brightness(0.97); }
+  @media (prefers-color-scheme: dark) { button:hover { filter: brightness(1.15); } }
+  :root[data-theme="dark"] button:hover { filter: brightness(1.15); }
+  button.primary { background: var(--s0); color: #fff; border-color: transparent; font-weight: 600; }
+  button.ghost { background: transparent; }
+  button.danger-text { color: var(--st-overdue); }
+  button.icon { padding: 6px 8px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .zoom-group { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .zoom-group button { border: none; border-radius: 0; }
+  .zoom-group span { padding: 0 8px; font-size: 12px; color: var(--text-secondary); min-width: 34px; text-align: center; }
+
+  .mail-toggle {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary);
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1);
+    cursor: pointer; user-select: none;
+  }
+  .mail-toggle input { cursor: pointer; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
+  .legend .item { display: flex; align-items: center; gap: 5px; }
+  .legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  .member-search-row { margin-bottom: 8px; }
+  .member-search {
+    font: inherit; font-size: 12.5px; padding: 7px 10px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+    width: 100%; max-width: 320px;
+  }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface-1); cursor: pointer;
+    user-select: none; color: var(--text-primary);
+  }
+  .chip.off { opacity: .4; }
+  .chip.match { background: var(--s0); border-color: transparent; color: #fff; }
+
+  .editable-title { cursor: pointer; border-bottom: 1px dashed var(--muted); }
+  .editable-title:hover { color: var(--s0); }
+  .title-edit-input {
+    font: inherit; font-size: 13px; font-weight: 600; padding: 2px 6px; border-radius: 5px;
+    border: 1px solid var(--s0); background: var(--page-plane); color: var(--text-primary);
+  }
+
+  /* ---------- Gantt ---------- */
+  .gantt-card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-bottom: 22px;
+  }
+  .gantt-card .card-title {
+    padding: 10px 14px; font-size: 13px; font-weight: 600;
+    border-bottom: 1px solid var(--grid-line); display:flex; align-items:center; justify-content:space-between; flex-wrap: wrap; gap:4px;
+  }
+  .gantt-card .card-title .hint { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+  .gantt-topscroll { overflow-x: auto; overflow-y: hidden; height: 14px; border-bottom: 1px solid var(--grid-line); }
+  .gantt-topscroll > div { height: 1px; }
+  .gantt-wrap { overflow: auto; max-height: 65vh; }
+  .gantt-empty { padding: 30px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .gantt-inner { position: relative; display: grid; }
+
+  .g-cell { min-width: 0; }
+  .g-corner {
+    position: sticky; top: 0; left: 0; z-index: 30;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .g-month {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface-1);
+    border-left: 1px solid var(--grid-line);
+    border-bottom: 1px solid var(--border);
+    font-size: 11.5px; color: var(--text-secondary);
+    display: flex; align-items: center; padding-left: 5px; font-weight: 600;
+  }
+  .g-day {
+    position: sticky; z-index: 20;
+    background: var(--surface-1);
+    border-left: 1px solid var(--grid-line);
+    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 10.5px; color: var(--text-secondary); line-height: 1.25;
+  }
+  .g-day .dnum { font-size: 11.5px; font-weight: 600; color: var(--text-primary); }
+  .g-day.sat .dnum, .g-day.sat .wd { color: var(--s0); }
+  .g-day.sun .dnum, .g-day.sun .wd { color: var(--st-overdue); }
+  .g-day.today { background: color-mix(in srgb, var(--today-line) 16%, var(--surface-1)); }
+
+  .g-weekend { z-index: 1; background: var(--weekend-tint); pointer-events: none; }
+  .g-today-col { z-index: 6; pointer-events: none; display:flex; justify-content:center; }
+  .g-today-col .line { width: 2px; height: 100%; background: var(--today-line); }
+
+  .g-rowbg { z-index: 0; border-bottom: 1px solid var(--grid-line); }
+  .g-rowbg.zebra { background: color-mix(in srgb, var(--text-primary) 2.2%, transparent); }
+
+  .g-label {
+    position: sticky; left: 0; z-index: 10;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--grid-line);
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px; font-size: 12.5px; overflow: hidden; white-space: nowrap;
+  }
+  .g-label.assignee {
+    z-index: 11; font-weight: 700; font-size: 12.5px; cursor: pointer;
+    background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
+  }
+  .g-label.assignee .collapse-ico {
+    flex: none; color: var(--text-secondary); font-size: 13px; font-weight: 700;
+    width: 13px; display: inline-flex; align-items: center; justify-content: center;
+    font-family: ui-monospace, Consolas, monospace; line-height: 1;
+  }
+  .g-label.assignee .status-dot { width: 9px; height: 9px; }
+  .g-label.assignee .aname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-label .count { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .g-label .row-done { flex: none; cursor: pointer; }
+  .g-label .status-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .g-label .task-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; cursor: pointer; }
+  .g-label .task-text.done { text-decoration: line-through; color: var(--muted); }
+  .g-label .task-text.cancelled { text-decoration: line-through; color: var(--muted); }
+  .g-label .mini-badge { flex: none; font-size: 10px; color: var(--muted); }
+  .g-label .task-due { color: var(--muted); font-size: 11px; flex: none; }
+  .g-label .edit-btn {
+    flex: none; border: none; background: transparent; color: var(--muted);
+    font-size: 12px; padding: 2px 4px; border-radius: 4px; cursor: pointer; opacity: 0;
+  }
+  .g-label:hover .edit-btn { opacity: 1; }
+  .g-label .edit-btn:hover { background: var(--weekend-tint); color: var(--text-primary); }
+
+  .g-groupwash { z-index: 2; pointer-events: none; background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+
+  .g-bar {
+    position: relative; z-index: 5; margin: 5px 2px; border-radius: 4px;
+    display: flex; align-items: center; overflow: hidden; cursor: grab;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18); touch-action: none;
+  }
+  .g-bar:active { cursor: grabbing; }
+  .g-bar .bar-fill {
+    position: absolute; inset: 0; border-radius: 4px; pointer-events: none;
+  }
+  .g-bar .chip-label {
+    position: relative; background: rgba(0,0,0,.30); color: #fff; font-size: 11px;
+    padding: 1px 6px; border-radius: 3px; margin: 0 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+    flex: 1 1 auto; min-width: 0;
+  }
+  .g-bar.done { opacity: .55; }
+  .g-bar.cancelled { opacity: .55; }
+  .g-bar .chip-label.strike { text-decoration: line-through; }
+  .g-bar .handle { position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; z-index: 2; }
+  .g-bar .handle-l { left: 0; border-radius: 4px 0 0 4px; }
+  .g-bar .handle-r { right: 0; border-radius: 0 4px 4px 0; }
+  .g-bar .handle:hover { background: rgba(255,255,255,.35); }
+
+  .g-connectors { position: absolute; top: 0; left: 0; z-index: 7; pointer-events: none; }
+
+  /* ---------- Table ---------- */
+  details.list-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  }
+  details.list-card > summary {
+    cursor: pointer; list-style: none; padding: 12px 14px; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  details.list-card > summary::-webkit-details-marker { display: none; }
+  details.list-card > summary .hint { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+  details.list-card > summary .toggle-ico {
+    flex: none; width: 16px; display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; color: var(--muted); font-size: 14px;
+  }
+  details.list-card > summary .toggle-ico::before { content: "+"; }
+  details.list-card[open] > summary .toggle-ico::before { content: "\2212"; }
+  .list-body { padding: 0 14px 14px; overflow-x: auto; }
+  table.task-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.task-table th, table.task-table td {
+    text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--grid-line); white-space: nowrap;
+  }
+  table.task-table th { color: var(--text-secondary); font-weight: 600; font-size: 11.5px; }
+  table.task-table td.content-cell { white-space: normal; min-width: 220px; }
+  table.task-table tr.done td.content-cell, table.task-table tr.cancelled td.content-cell { text-decoration: line-through; color: var(--muted); }
+  table.task-table button { padding: 4px 8px; font-size: 12px; }
+  table.task-table td.ops { display: flex; gap: 6px; }
+  .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; }
+  .status-badge .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  footer.note { margin-top: 18px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.42);
+    display: none; align-items: center; justify-content: center; z-index: 100; padding: 16px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface-1); color: var(--text-primary);
+    border-radius: 12px; width: 100%; max-width: 560px; max-height: 88vh;
+    border: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.25);
+    display: flex; flex-direction: column;
+  }
+  .modal .m-head { padding: 14px 16px 10px; font-weight: 700; font-size: 14.5px; }
+  .modal .tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--grid-line); flex: none; }
+  .modal .tab-btn {
+    background: none; border: none; padding: 9px 10px; font-size: 12.5px; color: var(--text-secondary);
+    border-bottom: 2px solid transparent; border-radius: 0;
+  }
+  .modal .tab-btn.active { color: var(--text-primary); border-bottom-color: var(--s0); font-weight: 700; }
+  .modal .m-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+  .modal .tab-panel { display: none; flex-direction: column; gap: 12px; }
+  .modal .tab-panel.active { display: flex; }
+  .modal label { font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 5px; }
+  .modal input[type=text], .modal input[type=date], .modal textarea {
+    font: inherit; padding: 8px 9px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); resize: vertical;
+  }
+  .modal .row2 { display: flex; gap: 10px; }
+  .modal .row2 > label { flex: 1; }
+  .modal .checkline { flex-direction: row; align-items: center; gap: 7px; font-size: 13px; color: var(--text-primary); }
+  .modal .err { color: var(--st-overdue); font-size: 12px; min-height: 14px; }
+  .modal .m-foot { padding: 12px 16px 16px; display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--grid-line); flex: none; }
+  .modal .m-foot .right { display: flex; gap: 8px; }
+  .modal .subhead { font-size: 12.5px; font-weight: 700; margin: 4px 0 -4px; }
+  .modal .hintline { font-size: 11px; color: var(--muted); margin: -6px 0 0; }
+
+  .link-row { display: flex; gap: 6px; align-items: center; }
+  .link-row input { flex: 1; }
+  .link-row input.label-input { flex: 0 0 34%; }
+  .link-row .lbtn { padding: 6px 8px; font-size: 12px; flex: none; }
+  .add-link-btn { align-self: flex-start; }
+
+  .rel-list {
+    max-height: 190px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px; display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px;
+  }
+  .rel-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: 6px;
+    font-size: 12.5px;
+  }
+  .rel-item:hover { background: var(--weekend-tint); }
+  .rel-item .ra { color: var(--muted); font-size: 11px; flex: none; }
+  .rel-item .rc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rel-item .rel-del { flex: none; border: none; background: none; color: var(--st-overdue); font-size: 12px; padding: 2px 5px; cursor: pointer; }
+  .rel-empty { color: var(--muted); font-size: 12px; padding: 8px; }
+
+  .connect-banner {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--surface-1); font-size: 12.5px;
+    padding: 8px 16px; border-radius: 999px; z-index: 260; pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,.3); display: none;
+  }
+  .connect-banner.on { display: block; }
+  #connectPreview { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 255; display: none; }
+  #connectPreview.on { display: block; }
+  .g-bar.connect-target-hint { outline: 2px solid var(--s0); outline-offset: 1px; }
+
+  /* ---------- Date picker ---------- */
+  .dpick-btn {
+    width: 100%; font: inherit; text-align: left; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 9px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary);
+  }
+  .dpick-btn .ico { color: var(--muted); font-size: 13px; flex: none; }
+  .dpick-pop {
+    position: fixed; z-index: 300; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.28); padding: 10px; width: 236px;
+  }
+  .dpick-pop.open { display: block; }
+  .dpick-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .dpick-head button { padding: 3px 8px; font-size: 13px; }
+  .dpick-head .ym { font-size: 12.5px; font-weight: 700; }
+  .dpick-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .dpick-wd { text-align: center; font-size: 10.5px; color: var(--muted); padding: 2px 0; }
+  .dpick-day { text-align: center; font-size: 12px; padding: 6px 0; border-radius: 6px; cursor: pointer; color: var(--text-primary); }
+  .dpick-day:hover { background: var(--weekend-tint); }
+  .dpick-day.other { color: var(--muted); opacity: .5; }
+  .dpick-day.today { outline: 1px solid var(--s0); outline-offset: -1px; }
+  .dpick-day.selected { background: var(--s0); color: #fff; font-weight: 700; }
+  .dpick-foot { display: flex; justify-content: space-between; margin-top: 8px; }
+  .dpick-foot button { font-size: 11.5px; padding: 4px 8px; }
+
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div>
+    <h1>タスクボード ― 担当者別ガントチャート</h1>
+    <p class="sub">担当者ごとにタスクを縦に並べ、期間を横のカレンダーで表示します。バーはドラッグで移動・端をつまんで期間変更ができます。データはこの端末のブラウザ内にのみ保存されます。</p>
+  </div>
+  <div class="local-badge"><span class="dot"></span>ローカル保存のみ・外部送信なし</div>
+</header>
+
+<div class="toolbar">
+  <button class="primary" id="btnAdd">＋ 新規タスク</button>
+  <div class="zoom-group">
+    <button id="zoomOut" class="icon" title="縮小">－</button>
+    <span id="zoomLabel">26px</span>
+    <button id="zoomIn" class="icon" title="拡大">＋</button>
+  </div>
+  <button id="btnToday" class="ghost">今日へ移動</button>
+  <div class="spacer"></div>
+  <button id="btnExportCsv" class="ghost" title="タスク番号・担当者・内容・期間・リンク・つながりをExcelで開けるCSVとして端末に保存">Excel出力 (CSV)</button>
+  <button id="btnExport" class="ghost" title="現在のタスクをJSONファイルとして端末に保存">書き出し (JSON)</button>
+  <button id="btnImport" class="ghost" title="JSONファイルを端末から読み込み">読み込み (JSON)</button>
+  <input type="file" id="fileImport" accept="application/json">
+  <button id="btnPortGuide" class="ghost" title="他のPCへコピーして使う手順を新しいウィンドウで表示">💻 他のPCにコピーして使う方法</button>
+  <button id="btnEmailManage" class="ghost" title="Outlook下書きメールの宛先として使う、メンバーごとのメールアドレスを登録">📧 メンバーのメール管理</button>
+  <label class="mail-toggle" title="担当者・開始日・期限を変更した際にOutlookで下書きメールを自動作成します">
+    <input type="checkbox" id="mailToggle" checked> 変更時にメール下書き
+  </label>
+  <button id="btnReset" class="ghost">初期データに戻す</button>
+</div>
+
+<div class="legend">
+  <span class="item"><span class="sw" style="background:var(--st-safe)"></span>余裕あり</span>
+  <span class="item"><span class="sw" style="background:var(--st-warn)"></span>期限間近（1週間以内）</span>
+  <span class="item"><span class="sw" style="background:var(--st-overdue)"></span>期限超過</span>
+  <span class="item"><span class="sw" style="background:var(--st-done)"></span>完了</span>
+  <span class="item"><span class="sw" style="background:var(--st-cancel)"></span>不要（理由あり）</span>
+</div>
+
+
+<div class="member-search-row">
+  <input type="text" id="memberSearch" class="member-search" placeholder="🔍 メンバーを検索（部分一致でハイライト）">
+</div>
+<div class="filter-chips" id="filterChips"></div>
+
+<div class="gantt-card">
+  <div class="card-title">
+    <span id="ganttTitleWrap"></span>
+    <span class="hint">バー中央をドラッグで移動／端をドラッグで期間変更／クリックでリンク・つながりを開く</span>
+  </div>
+  <div class="gantt-topscroll" id="ganttTopScroll"><div id="ganttTopScrollInner"></div></div>
+  <div class="gantt-wrap" id="ganttWrap">
+    <div class="gantt-inner" id="ganttInner"></div>
+  </div>
+</div>
+
+<details class="list-card" open>
+  <summary><span class="toggle-ico"></span>一覧（内容・期限・状態を確認／編集）<span class="hint">クリックで開閉</span></summary>
+  <div class="list-body">
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th>完</th><th>タスク番号</th><th>担当者</th><th>内容</th><th>開始日</th><th>期限</th><th>状態</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="taskTableBody"></tbody>
+    </table>
+  </div>
+</details>
+
+<footer class="note">
+  ※ このページは単体のHTMLファイルです。インターネット通信は行わず、入力内容はすべてこのブラウザのローカルストレージに保存されます。<br>
+  ※ 別のPCやブラウザに移す手順は、上部の「💻 他のPCにコピーして使う方法」を開いて確認してください。<br>
+  ※ リンクにはローカルのファイル/フォルダのパス（例: C:\Users\...\report.xlsx）もそのまま登録できます。クリックすると自動的に file:// リンクとして開きます。<br>
+  ※ 「Excel出力 (CSV)」はタスク番号・担当者名・タスク名・開始・終了・リンク先・つながり(タスク番号)をCSV形式で書き出します。文字化けしないようUTF-8(BOM付き)で保存しており、そのままExcelで開けます。<br>
+  ※ タスク番号は「担当者番号_登録日時(yyyymmdd_hhmmss)」の形式で、タスクの新規作成時に一度だけ発行され、以後は変わりません。
+</footer>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="m-head" id="modalTitle">新規タスク</div>
+    <div class="tabs">
+      <button type="button" class="tab-btn" data-tab="basic">基本情報</button>
+      <button type="button" class="tab-btn" data-tab="links">リンク・つながり</button>
+    </div>
+    <div class="m-body">
+      <div class="tab-panel" data-panel="basic">
+        <label>担当者
+          <input type="text" id="fAssignee" list="assigneeList" placeholder="例）メンバー1">
+        </label>
+        <datalist id="assigneeList"></datalist>
+        <label>内容
+          <input type="text" id="fContent" placeholder="例）タスク1">
+        </label>
+        <div class="row2">
+          <label>開始日
+            <div class="dpick" id="dpStart"></div>
+          </label>
+          <label>期限
+            <div class="dpick" id="dpDue"></div>
+          </label>
+        </div>
+        <label class="checkline"><input type="checkbox" id="fDone"> 完了済み</label>
+        <label>不要になった理由（入力すると「不要」として濃い灰色になります）
+          <textarea id="fCancel" rows="2" placeholder="例）先方都合により中止のため"></textarea>
+        </label>
+        <div class="err" id="fErr"></div>
+      </div>
+      <div class="tab-panel" data-panel="links">
+        <div class="subhead">リンク（フォルダ・ファイル・URL）</div>
+        <p class="hintline">ラベルとパス／URLを入力してください。ローカルパスはそのまま貼り付けでOKです。</p>
+        <div id="linkRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <button type="button" class="ghost add-link-btn" id="btnAddLink">＋ リンクを追加</button>
+
+        <div class="subhead" style="margin-top:6px;">他のタスクとのつながり</div>
+        <p class="hintline" id="relHint">現在つながっているタスク。ボタンを押すとこの画面が閉じるので、つなげたいタスクをガントチャート上でクリックしてください。</p>
+        <div class="rel-list" id="relList"></div>
+        <button type="button" class="ghost" id="btnConnect">🔗 他のタスクとつなぐ</button>
+      </div>
+    </div>
+    <div class="m-foot">
+      <button class="danger-text ghost" id="btnDelete" style="display:none">削除</button>
+      <div class="right">
+        <button class="ghost" id="btnCancelModal">キャンセル</button>
+        <button class="primary" id="btnSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="emailModalBackdrop">
+  <div class="modal" style="max-width:480px;">
+    <div class="m-head">📧 メンバーのメールアドレス管理</div>
+    <div class="m-body">
+      <p class="hintline" style="margin-top:0;">
+        タスクの担当者・開始日・期限を変更した際、Outlookの下書きメールの宛先として使用します。<br>
+        この端末（ブラウザ）内にのみ保存され、外部には送信されません。
+      </p>
+      <div id="emailRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+    <div class="m-foot">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="btnEmailCancel">閉じる</button>
+        <button class="primary" id="btnEmailSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="connect-banner" id="connectBanner">🔗 つなげたいタスクをクリック（Escで中止）</div>
+<svg id="connectPreview">
+  <path id="connectPreviewPath" fill="none" stroke="var(--s0)" stroke-width="2" stroke-dasharray="5 4" />
+  <circle id="connectPreviewDot" r="4" fill="var(--s0)" />
+</svg>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORE_TASKS = "stb_tasks_v2";
+  var STORE_HIDDEN = "stb_hidden_v1";
+  var STORE_THEME = "stb_theme_v1";
+  var STORE_ZOOM = "stb_zoom_v1";
+  var STORE_ASSIGNEE_NO = "stb_assignee_no_v1";
+  var STORE_COLLAPSED = "stb_collapsed_v1";
+  var STORE_GANTT_TITLE = "stb_gantt_title_v1";
+  var STORE_ASSIGNEE_EMAIL = "stb_assignee_email_v1";
+  var STORE_MAIL_ENABLED = "stb_mail_notify_v1";
+  var LEGACY_STORE_TASKS = "stb_tasks_v1";
+
+  // ---------- Seed data ----------
+  // デモ用の汎用サンプルデータ。メンバー名・タスク名は匿名化してあり、
+  // 期限は「今日」を基準に自動計算する（このファイルを開いた日から
+  // 概ね4ヶ月先まで、完了／期限間近／期限超過／不要／余裕ありの
+  // 全ステータスが常に一通り見えるよう意図的に日付を分散させている）。
+  function seedDate(offsetDays){
+    var d = new Date();
+    d.setHours(0,0,0,0);
+    d.setDate(d.getDate() + offsetDays);
+    return toISO(d);
+  }
+  function seedData(){
+    var spec = [
+      // --- 完了（グレー・取り消し線）: 過去日＋done、常にグレー表示 ---
+      { assignee:"メンバー1",  due:-10, dur:5, done:true },
+      { assignee:"メンバー2",  due:-15, dur:4, done:true },
+      { assignee:"メンバー3",  due:-20, dur:6, done:true },
+      { assignee:"メンバー4",  due:-25, dur:3, done:true },
+      { assignee:"メンバー5",  due:-30, dur:5, done:true },
+
+      // --- 不要（濃いグレー）: 理由入力ありで、日付に関わらず常に不要表示 ---
+      { assignee:"メンバー6",  due:-5,  dur:4, reason:"重要度が下がったため対応を取りやめ" },
+      { assignee:"メンバー7",  due:15,  dur:5, reason:"他タスクと内容が重複したため" },
+      { assignee:"メンバー8",  due:-2,  dur:3, reason:"先方都合により中止" },
+      { assignee:"メンバー9",  due:30,  dur:4, reason:"対応不要と判断されたため" },
+
+      // --- 期限超過（赤）: 過去日のまま固定、いつ見ても超過表示 ---
+      { assignee:"メンバー10", due:-3,  dur:3 },
+      { assignee:"メンバー1",  due:-8,  dur:4 },
+      { assignee:"メンバー2",  due:-15, dur:5 },
+      { assignee:"メンバー3",  due:-25, dur:6 },
+
+      // --- 期限間近／余裕あり（橙・緑）: 約6日間隔で先々まで分散配置。
+      //     時間が経過しても常にどこかが「1週間以内」に入るようにしてある ---
+      { assignee:"メンバー1",  due:2,   dur:2 },
+      { assignee:"メンバー2",  due:8,   dur:3 },
+      { assignee:"メンバー3",  due:14,  dur:4 },
+      { assignee:"メンバー4",  due:20,  dur:5 },
+      { assignee:"メンバー5",  due:26,  dur:6 },
+      { assignee:"メンバー6",  due:32,  dur:2 },
+      { assignee:"メンバー7",  due:38,  dur:3 },
+      { assignee:"メンバー8",  due:44,  dur:4 },
+      { assignee:"メンバー9",  due:50,  dur:5 },
+      { assignee:"メンバー10", due:56,  dur:6 },
+      { assignee:"メンバー1",  due:62,  dur:2 },
+      { assignee:"メンバー2",  due:68,  dur:3 },
+      { assignee:"メンバー3",  due:74,  dur:4 },
+      { assignee:"メンバー4",  due:80,  dur:5 },
+      { assignee:"メンバー5",  due:86,  dur:6 },
+      { assignee:"メンバー6",  due:92,  dur:2 },
+      { assignee:"メンバー7",  due:98,  dur:3 },
+      { assignee:"メンバー8",  due:104, dur:4 },
+      { assignee:"メンバー9",  due:110, dur:5 },
+      { assignee:"メンバー10", due:116, dur:6 },
+      { assignee:"メンバー1",  due:122, dur:2 },
+      { assignee:"メンバー2",  due:128, dur:3 },
+      { assignee:"メンバー3",  due:134, dur:4 }
+    ];
+    var t = spec.map(function(s, i){
+      return {
+        id: "seed-" + i,
+        taskNo: generateTaskNo(s.assignee),
+        assignee: s.assignee,
+        content: "タスク" + (i + 1),
+        start: seedDate(s.due - s.dur),
+        due: seedDate(s.due),
+        done: !!s.done,
+        cancelReason: s.reason || "",
+        links: [],
+        relations: []
+      };
+    });
+    // デモ用: 「つながり」機能の見本として、いくつかのタスクを接続しておく
+    link(t, 0, 13);   // タスク1（完了） <-> タスク14（期限間近寄り）
+    link(t, 9, 24);   // タスク10（期限超過） <-> タスク25（余裕あり）
+    link(t, 5, 34);   // タスク6（不要） <-> タスク35（余裕あり）
+    return t;
+    function link(arr, i, j){
+      arr[i].relations.push(arr[j].id);
+      arr[j].relations.push(arr[i].id);
+    }
+  }
+
+  // ---------- State ----------
+  var state = {
+    tasks: [],
+    hidden: {},
+    collapsed: {},
+    memberSearch: "",
+    mailNotifyEnabled: true,
+    dayWidth: 26,
+    editingId: null,
+    isNew: false,
+    modalLinks: [],
+    connectSourceId: null
+  };
+
+  // ---------- Utils ----------
+  function uid(){ return "t-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8); }
+  function escapeHtml(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c];
+    });
+  }
+  function parseISO(s){
+    var p = s.split("-").map(Number);
+    return new Date(p[0], p[1]-1, p[2]);
+  }
+  function toISO(d){
+    var y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0");
+    return y + "-" + m + "-" + dd;
+  }
+  function addDays(d, n){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()+n); }
+  function dayDiff(a, b){ return Math.round((b - a) / 86400000); }
+  function todayDate(){ var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+  var WD = ["日","月","火","水","木","金","土"];
+  function pad2(n){ return String(n).padStart(2, "0"); }
+
+  // ---------- Task number (担当者番号_yyyymmdd_hhmmss) ----------
+  var assigneeNoMap = {};   // 担当者名 -> 担当者番号（初出順、永続）
+  var usedTaskNos = {};     // 発行済みタスク番号の重複防止用
+  function loadAssigneeNoMap(){
+    var raw = localStorage.getItem(STORE_ASSIGNEE_NO);
+    if (raw) { try { assigneeNoMap = JSON.parse(raw) || {}; } catch(e) { assigneeNoMap = {}; } }
+  }
+  function saveAssigneeNoMap(){ localStorage.setItem(STORE_ASSIGNEE_NO, JSON.stringify(assigneeNoMap)); }
+
+  // ---------- Assignee email addresses (Outlook下書きの宛先) ----------
+  var assigneeEmailMap = {};
+  function loadAssigneeEmailMap(){
+    var raw = localStorage.getItem(STORE_ASSIGNEE_EMAIL);
+    if (raw) { try { assigneeEmailMap = JSON.parse(raw) || {}; } catch(e) { assigneeEmailMap = {}; } }
+  }
+  function saveAssigneeEmailMap(){ localStorage.setItem(STORE_ASSIGNEE_EMAIL, JSON.stringify(assigneeEmailMap)); }
+
+  function getAssigneeNo(name){
+    if (assigneeNoMap[name]) return assigneeNoMap[name];
+    var maxNo = 0;
+    Object.keys(assigneeNoMap).forEach(function(k){ if (assigneeNoMap[k] > maxNo) maxNo = assigneeNoMap[k]; });
+    assigneeNoMap[name] = maxNo + 1;
+    saveAssigneeNoMap();
+    return assigneeNoMap[name];
+  }
+  function formatTaskNo(assigneeNo, d){
+    return pad2(assigneeNo) + "_" + d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate()) +
+      "_" + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+  function generateTaskNo(assignee){
+    var no = getAssigneeNo(assignee);
+    var d = new Date();
+    var taskNo = formatTaskNo(no, d);
+    while (usedTaskNos[taskNo]) {
+      d = new Date(d.getTime() + 1000);
+      taskNo = formatTaskNo(no, d);
+    }
+    usedTaskNos[taskNo] = true;
+    return taskNo;
+  }
+  function registerExistingTaskNos(list){
+    list.forEach(function(t){ if (t && t.taskNo) usedTaskNos[t.taskNo] = true; });
+  }
+
+  function normalizeTask(t){
+    if (!t.id) t.id = uid();
+    if (typeof t.done !== "boolean") t.done = false;
+    if (typeof t.cancelReason !== "string") t.cancelReason = "";
+    if (!Array.isArray(t.links)) t.links = [];
+    if (!Array.isArray(t.relations)) t.relations = [];
+    if (!t.taskNo) t.taskNo = generateTaskNo(t.assignee);
+    return t;
+  }
+
+  function statusOf(t){
+    if (t.cancelReason && t.cancelReason.trim()) return "cancelled";
+    if (t.done) return "done";
+    var diff = dayDiff(todayDate(), parseISO(t.due));
+    if (diff < 0) return "overdue";
+    if (diff <= 7) return "warn";
+    return "safe";
+  }
+  var STATUS_META = {
+    safe:     { color: "var(--st-safe)",    label: "余裕あり" },
+    warn:     { color: "var(--st-warn)",    label: "期限間近" },
+    overdue:  { color: "var(--st-overdue)", label: "期限超過" },
+    done:     { color: "var(--st-done)",    label: "完了" },
+    cancelled:{ color: "var(--st-cancel)",  label: "不要" }
+  };
+  var STATUS_PRIORITY = ["overdue", "warn", "safe", "done", "cancelled"];
+  function aggregateStatus(tasks){
+    var present = {};
+    tasks.forEach(function(t){ present[statusOf(t)] = true; });
+    for (var i = 0; i < STATUS_PRIORITY.length; i++) {
+      if (present[STATUS_PRIORITY[i]]) return STATUS_PRIORITY[i];
+    }
+    return "safe";
+  }
+
+  // ---------- Outlook draft mail on change (mailto:) ----------
+  function fmtMD(iso){
+    var p = iso.split("-");
+    return parseInt(p[1], 10) + "/" + parseInt(p[2], 10);
+  }
+  function sendUpdateMail(task, changes){
+    var to = (assigneeEmailMap[task.assignee] || "").trim();
+    var subject = "【タスクボード更新】" + task.content;
+    var lines = ["タスクボードに更新がありました", "タスク名：" + task.content];
+    changes.forEach(function(c){ lines.push(c.label + "：" + c.oldVal + " → " + c.newVal); });
+    var body = lines.join("\n");
+    var mailto = "mailto:" + to + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+    var a = document.createElement("a");
+    a.href = mailto;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+  function maybeSendUpdateMail(task, oldVals){
+    if (!state.mailNotifyEnabled) return;
+    var changes = [];
+    if (oldVals.assignee !== task.assignee) changes.push({ label: "担当者", oldVal: oldVals.assignee, newVal: task.assignee });
+    if (oldVals.start !== task.start) changes.push({ label: "開始日", oldVal: fmtMD(oldVals.start), newVal: fmtMD(task.start) });
+    if (oldVals.due !== task.due) changes.push({ label: "期限(終了)", oldVal: fmtMD(oldVals.due), newVal: fmtMD(task.due) });
+    if (changes.length === 0) return;
+    sendUpdateMail(task, changes);
+  }
+
+  function toHref(p){
+    p = (p || "").trim();
+    if (!p) return "#";
+    if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//.test(p)) return p;
+    if (/^[a-zA-Z]:[\\\/]/.test(p)) return "file:///" + p.replace(/\\/g, "/");
+    if (/^\\\\/.test(p)) return "file://" + p.replace(/^\\\\/, "").replace(/\\/g, "/");
+    return p;
+  }
+
+  function assigneeOrder(){
+    var seen = [];
+    state.tasks.forEach(function(t){
+      if (t.assignee && seen.indexOf(t.assignee) === -1) seen.push(t.assignee);
+    });
+    return seen;
+  }
+
+  // ---------- Persistence ----------
+  function load(){
+    loadAssigneeNoMap();
+    loadAssigneeEmailMap();
+    var mraw = localStorage.getItem(STORE_MAIL_ENABLED);
+    state.mailNotifyEnabled = mraw === null ? true : mraw === "1";
+    var raw = localStorage.getItem(STORE_TASKS) || localStorage.getItem(LEGACY_STORE_TASKS);
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        registerExistingTaskNos(parsed);
+        state.tasks = parsed.map(normalizeTask);
+        saveTasks(); // 移行で新規発行したタスク番号などを確定保存
+      } catch(e) { state.tasks = seedData(); }
+    } else {
+      state.tasks = seedData();
+    }
+    var hraw = localStorage.getItem(STORE_HIDDEN);
+    if (hraw) { try { state.hidden = JSON.parse(hraw); } catch(e){ state.hidden = {}; } }
+    var craw = localStorage.getItem(STORE_COLLAPSED);
+    if (craw) { try { state.collapsed = JSON.parse(craw); } catch(e){ state.collapsed = {}; } }
+    var zraw = localStorage.getItem(STORE_ZOOM);
+    if (zraw) { var z = parseInt(zraw,10); if (z >= 14 && z <= 48) state.dayWidth = z; }
+    var theme = localStorage.getItem(STORE_THEME);
+    if (theme === "dark" || theme === "light") document.documentElement.setAttribute("data-theme", theme);
+  }
+  function saveTasks(){ localStorage.setItem(STORE_TASKS, JSON.stringify(state.tasks)); }
+  function saveHidden(){ localStorage.setItem(STORE_HIDDEN, JSON.stringify(state.hidden)); }
+  function saveCollapsed(){ localStorage.setItem(STORE_COLLAPSED, JSON.stringify(state.collapsed)); }
+  function saveZoom(){ localStorage.setItem(STORE_ZOOM, String(state.dayWidth)); }
+
+  // ---------- Render: filter chips ----------
+  function renderChips(){
+    var wrap = document.getElementById("filterChips");
+    var order = assigneeOrder();
+    if (order.length === 0) { wrap.innerHTML = ""; return; }
+    wrap.innerHTML = order.map(function(a){
+      var off = state.hidden[a] ? " off" : "";
+      return '<span class="chip' + off + '" data-assignee="' + escapeHtml(a) + '">' + escapeHtml(a) + '</span>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll(".chip"), function(el){
+      el.addEventListener("click", function(){
+        var a = el.getAttribute("data-assignee");
+        state.hidden[a] = !state.hidden[a];
+        saveHidden();
+        renderAll();
+      });
+    });
+    applyMemberSearchHighlight();
+  }
+
+  function applyMemberSearchHighlight(){
+    var q = state.memberSearch.trim().toLowerCase();
+    Array.prototype.forEach.call(document.querySelectorAll("#filterChips .chip"), function(el){
+      var name = (el.getAttribute("data-assignee") || "").toLowerCase();
+      el.classList.toggle("match", q.length > 0 && name.indexOf(q) !== -1);
+    });
+  }
+
+  // ---------- Render: Gantt ----------
+  function renderGantt(){
+    var inner = document.getElementById("ganttInner");
+    var visible = state.tasks.filter(function(t){ return !state.hidden[t.assignee]; });
+
+    if (visible.length === 0) {
+      inner.innerHTML = '<div class="gantt-empty">表示できるタスクがありません。「＋ 新規タスク」から追加してください。</div>';
+      inner.style.display = "block";
+      inner.style.gridTemplateColumns = "";
+      inner.style.gridTemplateRows = "";
+      document.getElementById("ganttTopScrollInner").style.width = "0px";
+      return;
+    }
+    inner.style.display = "grid";
+
+    var order = assigneeOrder().filter(function(a){ return !state.hidden[a]; });
+    var groups = order.map(function(a){
+      var tasks = state.tasks
+        .filter(function(t){ return t.assignee === a; })
+        .slice()
+        .sort(function(x,y){ return parseISO(x.start) - parseISO(y.start); });
+      return { assignee: a, tasks: tasks };
+    });
+
+    var minStart = null, maxDue = null;
+    state.tasks.forEach(function(t){
+      var s = parseISO(t.start), d = parseISO(t.due);
+      if (!minStart || s < minStart) minStart = s;
+      if (!maxDue || d > maxDue) maxDue = d;
+    });
+    var rangeStart = addDays(minStart, -2);
+    var rangeEnd = addDays(maxDue, 2);
+    var numDays = dayDiff(rangeStart, rangeEnd) + 1;
+
+    var dayWidth = state.dayWidth;
+    var labelWidth = 270;
+    var monthRowH = 22, dayRowH = 32, rowH = 32;
+    var headerH = monthRowH + dayRowH;
+
+    var totalRows = 0;
+    groups.forEach(function(g){ totalRows += 1 + (state.collapsed[g.assignee] ? 0 : g.tasks.length); });
+
+    inner.style.setProperty("--label-width", labelWidth + "px");
+    inner.style.gridTemplateColumns = labelWidth + "px repeat(" + numDays + ", " + dayWidth + "px)";
+    inner.style.gridTemplateRows = monthRowH + "px " + dayRowH + "px repeat(" + totalRows + ", " + rowH + "px)";
+
+    var html = [];
+
+    html.push('<div class="g-cell g-corner" style="grid-column:1;grid-row:1/3;"></div>');
+
+    var mi = 0;
+    while (mi < numDays) {
+      var d0 = addDays(rangeStart, mi);
+      var y = d0.getFullYear(), m = d0.getMonth();
+      var count = 0;
+      while (mi + count < numDays) {
+        var d = addDays(rangeStart, mi + count);
+        if (d.getFullYear() !== y || d.getMonth() !== m) break;
+        count++;
+      }
+      var startCol = 2 + mi, endCol = startCol + count;
+      html.push('<div class="g-cell g-month" style="grid-column:' + startCol + '/' + endCol + ';grid-row:1;">' +
+                 (y) + '年' + (m+1) + '月</div>');
+      mi += count;
+    }
+
+    var today = todayDate();
+    var todayIdx = dayDiff(rangeStart, today);
+    var hasToday = todayIdx >= 0 && todayIdx < numDays;
+
+    for (var di = 0; di < numDays; di++) {
+      var day = addDays(rangeStart, di);
+      var wd = day.getDay();
+      var cls = "g-cell g-day";
+      if (wd === 6) cls += " sat";
+      if (wd === 0) cls += " sun";
+      if (di === todayIdx) cls += " today";
+      var col = 2 + di;
+      html.push('<div class="' + cls + '" style="grid-column:' + col + ';grid-row:2;top:' + monthRowH + 'px;">' +
+                 '<span class="dnum">' + day.getDate() + '</span><span class="wd">' + WD[wd] + '</span></div>');
+      if (wd === 0 || wd === 6) {
+        html.push('<div class="g-cell g-weekend" style="grid-column:' + col + ';grid-row:3/-1;"></div>');
+      }
+    }
+    if (hasToday) {
+      html.push('<div class="g-cell g-today-col" style="grid-column:' + (2+todayIdx) + ';grid-row:3/-1;"><div class="line"></div></div>');
+    }
+
+    var rowCursor = 3;
+    var rowMeta = {}; // id -> {rowIndex0, sIdx, eIdx}
+    groups.forEach(function(g){
+      var r = rowCursor;
+      var collapsed = !!state.collapsed[g.assignee];
+      var aggMeta = STATUS_META[aggregateStatus(g.tasks)];
+      html.push('<div class="g-cell g-rowbg" style="grid-column:1/-1;grid-row:' + r + ';"></div>');
+      html.push('<div class="g-cell g-groupwash" style="grid-column:2/-1;grid-row:' + r + ';"></div>');
+      html.push('<div class="g-cell g-label assignee" data-assignee="' + escapeHtml(g.assignee) + '" style="grid-column:1;grid-row:' + r + ';">' +
+                 '<span class="collapse-ico">' + (collapsed ? "+" : "−") + '</span>' +
+                 '<span class="status-dot" style="background:' + aggMeta.color + '" title="' + aggMeta.label + '（集約）"></span>' +
+                 '<span class="aname">' + escapeHtml(g.assignee) + '</span>' +
+                 '<span class="count">' + g.tasks.length + '件</span></div>');
+      rowCursor++;
+      if (collapsed) return;
+
+      g.tasks.forEach(function(t){
+        var rr = rowCursor;
+        var s = parseISO(t.start), d = parseISO(t.due);
+        var sIdx = dayDiff(rangeStart, s), eIdx = dayDiff(rangeStart, d);
+        if (eIdx < sIdx) eIdx = sIdx;
+        var colStart = 2 + sIdx, colEnd = 2 + eIdx + 1;
+        rowMeta[t.id] = { rowIndex0: rowCursor - 3, sIdx: sIdx, eIdx: eIdx };
+
+        var st = statusOf(t);
+        var meta = STATUS_META[st];
+        var doneCls = (st === "done") ? " done" : "";
+        var cancelCls = (st === "cancelled") ? " cancelled" : "";
+        var textCls = (st === "done" || st === "cancelled") ? " done" : "";
+
+        html.push('<div class="g-cell g-rowbg zebra" style="grid-column:1/-1;grid-row:' + rr + ';"></div>');
+
+        var badges = "";
+        if (t.links.length) badges += '<span class="mini-badge" title="リンク' + t.links.length + '件">🔗' + t.links.length + '</span>';
+        if (t.relations.length) badges += '<span class="mini-badge" title="つながり' + t.relations.length + '件">⛓' + t.relations.length + '</span>';
+
+        html.push('<div class="g-cell g-label" data-id="' + t.id + '" style="grid-column:1;grid-row:' + rr + ';">' +
+                   '<input type="checkbox" class="row-done" data-id="' + t.id + '" ' + (t.done ? "checked" : "") + '>' +
+                   '<span class="status-dot" style="background:' + meta.color + '"></span>' +
+                   '<span class="task-text' + textCls + '" data-id="' + t.id + '" title="' + escapeHtml(t.content) + '">' + escapeHtml(t.content) + '</span>' +
+                   badges +
+                   '<span class="task-due">〆' + t.due.slice(5).replace("-", "/") + '</span>' +
+                   '<button class="edit-btn" data-id="' + t.id + '" title="編集">✎</button>' +
+                   '</div>');
+
+        html.push('<div class="g-cell g-bar' + doneCls + cancelCls + '" data-id="' + t.id + '" style="grid-column:' + colStart + '/' + colEnd + ';grid-row:' + rr + ';" title="' +
+                   escapeHtml(g.assignee) + ' / ' + escapeHtml(t.content) + ' (' + t.start + ' 〜 ' + t.due + ') [' + meta.label + ']">' +
+                   '<div class="bar-fill" style="background:' + meta.color + '"></div>' +
+                   '<div class="handle handle-l"></div>' +
+                   '<span class="chip-label' + ((st==="done"||st==="cancelled") ? " strike" : "") + '">' + escapeHtml(t.content) + '</span>' +
+                   '<div class="handle handle-r"></div>' +
+                   '</div>');
+
+        rowCursor++;
+      });
+    });
+
+    // connectors (SVG overlay)
+    var totalW = labelWidth + numDays * dayWidth;
+    var totalH = headerH + totalRows * rowH;
+    document.getElementById("ganttTopScrollInner").style.width = totalW + "px";
+    var seenPairs = {};
+    var paths = [];
+    Object.keys(rowMeta).forEach(function(idA){
+      var taskA = state.tasks.find(function(x){ return x.id === idA; });
+      if (!taskA) return;
+      (taskA.relations || []).forEach(function(idB){
+        if (!rowMeta[idB]) return;
+        var key = idA < idB ? idA + "|" + idB : idB + "|" + idA;
+        if (seenPairs[key]) return;
+        seenPairs[key] = true;
+        var taskB = state.tasks.find(function(x){ return x.id === idB; });
+        if (!taskB) return;
+        var first = taskA, second = taskB, mA = rowMeta[idA], mB = rowMeta[idB];
+        if (parseISO(taskB.start) < parseISO(taskA.start)) {
+          first = taskB; second = taskA;
+          mA = rowMeta[idB]; mB = rowMeta[idA];
+        }
+        var x1 = labelWidth + (mA.eIdx + 1) * dayWidth;
+        var y1 = headerH + (mA.rowIndex0 + 0.5) * rowH;
+        var x2 = labelWidth + mB.sIdx * dayWidth;
+        var y2 = headerH + (mB.rowIndex0 + 0.5) * rowH;
+        var midx = (x1 + x2) / 2;
+        paths.push('<path d="M ' + x1 + ',' + y1 + ' C ' + midx + ',' + y1 + ' ' + midx + ',' + y2 + ' ' + x2 + ',' + y2 +
+                    '" fill="none" stroke="var(--text-secondary)" stroke-opacity="0.55" stroke-width="1.6" stroke-dasharray="4 3" />');
+        paths.push('<circle cx="' + x1 + '" cy="' + y1 + '" r="2.6" fill="var(--text-secondary)" fill-opacity="0.7" />');
+        paths.push('<circle cx="' + x2 + '" cy="' + y2 + '" r="2.6" fill="var(--text-secondary)" fill-opacity="0.7" />');
+      });
+    });
+    html.push('<svg class="g-connectors" width="' + totalW + '" height="' + totalH + '" viewBox="0 0 ' + totalW + ' ' + totalH + '">' + paths.join("") + '</svg>');
+
+    inner.innerHTML = html.join("");
+
+    // click: assignee header -> collapse/expand that member's rows
+    Array.prototype.forEach.call(inner.querySelectorAll(".g-label.assignee[data-assignee]"), function(el){
+      el.addEventListener("click", function(){
+        var a = el.getAttribute("data-assignee");
+        state.collapsed[a] = !state.collapsed[a];
+        saveCollapsed();
+        renderGantt();
+      });
+    });
+
+    // click: edit button / task text -> basic tab ; row checkbox -> toggle done
+    Array.prototype.forEach.call(inner.querySelectorAll(".edit-btn[data-id]"), function(el){
+      el.addEventListener("click", function(ev){ ev.stopPropagation(); openModal(el.getAttribute("data-id"), "basic"); });
+    });
+    Array.prototype.forEach.call(inner.querySelectorAll(".task-text[data-id]"), function(el){
+      el.addEventListener("click", function(ev){ ev.stopPropagation(); openModal(el.getAttribute("data-id"), "links"); });
+    });
+    Array.prototype.forEach.call(inner.querySelectorAll(".row-done[data-id]"), function(el){
+      el.addEventListener("click", function(ev){ ev.stopPropagation(); });
+      el.addEventListener("change", function(){
+        var t = state.tasks.find(function(x){ return x.id === el.getAttribute("data-id"); });
+        if (t) { t.done = el.checked; saveTasks(); renderAll(); }
+      });
+    });
+
+    // bar drag / resize / click
+    Array.prototype.forEach.call(inner.querySelectorAll(".g-bar[data-id]"), function(barEl){
+      var id = barEl.getAttribute("data-id");
+      var task = state.tasks.find(function(x){ return x.id === id; });
+      if (!task) return;
+      var meta = rowMeta[id];
+      attachBarDrag(barEl, task, meta.sIdx, meta.eIdx, dayWidth, numDays, rangeStart);
+    });
+  }
+
+  function attachBarDrag(barEl, task, sIdx0, eIdx0, dayWidth, numDays, rangeStart){
+    var handleL = barEl.querySelector(".handle-l");
+    var handleR = barEl.querySelector(".handle-r");
+
+    barEl.addEventListener("pointerdown", function(ev){
+      if (ev.button !== undefined && ev.button !== 0) return;
+      if (state.connectSourceId) return; // connect mode owns clicks while active
+      var mode = "move";
+      if (ev.target === handleL) mode = "left";
+      else if (ev.target === handleR) mode = "right";
+
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var origS = sIdx0, origE = eIdx0;
+      var liveS = origS, liveE = origE;
+      var moved = false;
+      var pointerId = ev.pointerId;
+      try { barEl.setPointerCapture(pointerId); } catch(e){}
+      document.body.style.userSelect = "none";
+
+      function onMove(mv){
+        var dxPx = mv.clientX - startX;
+        var dDays = Math.round(dxPx / dayWidth);
+        var newS = origS, newE = origE;
+        if (mode === "move") {
+          newS = origS + dDays; newE = origE + dDays;
+          if (newS < 0) { newE += -newS; newS = 0; }
+          if (newE > numDays - 1) { newS -= (newE - (numDays - 1)); newE = numDays - 1; }
+        } else if (mode === "left") {
+          newS = Math.min(origE, Math.max(0, origS + dDays));
+        } else if (mode === "right") {
+          newE = Math.max(origS, Math.min(numDays - 1, origE + dDays));
+        }
+        if (newS !== liveS || newE !== liveE) moved = true;
+        liveS = newS; liveE = newE;
+        barEl.style.gridColumn = (2 + newS) + " / " + (2 + newE + 1);
+      }
+      function onUp(){
+        barEl.removeEventListener("pointermove", onMove);
+        barEl.removeEventListener("pointerup", onUp);
+        barEl.removeEventListener("pointercancel", onUp);
+        document.body.style.userSelect = "";
+        try { barEl.releasePointerCapture(pointerId); } catch(e){}
+        if (moved) {
+          var oldVals = { assignee: task.assignee, content: task.content, start: task.start, due: task.due };
+          task.start = toISO(addDays(rangeStart, liveS));
+          task.due = toISO(addDays(rangeStart, liveE));
+          saveTasks();
+          maybeSendUpdateMail(task, oldVals);
+          renderAll();
+        } else {
+          openModal(task.id, "links");
+        }
+      }
+      barEl.addEventListener("pointermove", onMove);
+      barEl.addEventListener("pointerup", onUp);
+      barEl.addEventListener("pointercancel", onUp);
+    });
+  }
+
+  // ---------- Render: table ----------
+  function renderTable(){
+    var body = document.getElementById("taskTableBody");
+    var rows = state.tasks.slice().sort(function(a,b){
+      if (a.assignee !== b.assignee) return a.assignee < b.assignee ? -1 : 1;
+      return parseISO(a.due) - parseISO(b.due);
+    });
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:16px;">タスクがありません</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(function(t){
+      var st = statusOf(t);
+      var meta = STATUS_META[st];
+      var rowCls = (st === "done") ? "done" : (st === "cancelled" ? "cancelled" : "");
+      return '<tr class="' + rowCls + '" data-id="' + t.id + '">' +
+        '<td><input type="checkbox" class="chk-done" data-id="' + t.id + '" ' + (t.done ? "checked" : "") + '></td>' +
+        '<td style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted);">' + escapeHtml(t.taskNo || "") + '</td>' +
+        '<td>' + escapeHtml(t.assignee) + '</td>' +
+        '<td class="content-cell">' + escapeHtml(t.content) + (t.cancelReason ? '<br><span style="color:var(--muted);font-size:11px;">理由: ' + escapeHtml(t.cancelReason) + '</span>' : '') + '</td>' +
+        '<td>' + t.start + '</td>' +
+        '<td>' + t.due + '</td>' +
+        '<td><span class="status-badge"><span class="sw" style="background:' + meta.color + '"></span>' + meta.label + '</span></td>' +
+        '<td class="ops">' +
+          '<button class="ghost btn-edit" data-id="' + t.id + '">編集</button>' +
+          '<button class="ghost btn-links" data-id="' + t.id + '">リンク</button>' +
+          '<button class="ghost danger-text btn-del" data-id="' + t.id + '">削除</button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+
+    Array.prototype.forEach.call(body.querySelectorAll(".btn-edit"), function(el){
+      el.addEventListener("click", function(){ openModal(el.getAttribute("data-id"), "basic"); });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll(".btn-links"), function(el){
+      el.addEventListener("click", function(){ openModal(el.getAttribute("data-id"), "links"); });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll(".btn-del"), function(el){
+      el.addEventListener("click", function(){
+        var id = el.getAttribute("data-id");
+        var t = state.tasks.find(function(x){ return x.id === id; });
+        if (t && confirm('「' + t.content + '」を削除しますか？（つながり・リンクも削除されます）')) {
+          state.tasks.forEach(function(x){ x.relations = x.relations.filter(function(r){ return r !== id; }); });
+          state.tasks = state.tasks.filter(function(x){ return x.id !== id; });
+          saveTasks();
+          renderAll();
+        }
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll(".chk-done"), function(el){
+      el.addEventListener("change", function(){
+        var id = el.getAttribute("data-id");
+        var t = state.tasks.find(function(x){ return x.id === id; });
+        if (t) { t.done = el.checked; saveTasks(); renderAll(); }
+      });
+    });
+  }
+
+  function renderAssigneeDatalist(){
+    var dl = document.getElementById("assigneeList");
+    dl.innerHTML = assigneeOrder().map(function(a){ return '<option value="' + escapeHtml(a) + '">'; }).join("");
+  }
+
+  function renderAll(){
+    renderChips();
+    renderGantt();
+    renderTable();
+    renderAssigneeDatalist();
+    document.getElementById("zoomLabel").textContent = state.dayWidth + "px";
+  }
+
+  // ---------- Date picker (custom calendar popover, no native input[type=date]) ----------
+  function createDatePicker(container){
+    var selected = "";
+    var viewDate = todayDate();
+    var open = false;
+
+    container.innerHTML = '<button type="button" class="dpick-btn"><span class="dtxt"></span><span class="ico">📅</span></button>';
+    var btn = container.querySelector(".dpick-btn");
+    var dtxt = container.querySelector(".dtxt");
+    var pop = document.createElement("div");
+    pop.className = "dpick-pop";
+    document.body.appendChild(pop);
+
+    function fmt(iso){ return iso ? iso.replace(/-/g, "/") : "日付を選択"; }
+    function refreshBtn(){ dtxt.textContent = fmt(selected); }
+
+    function renderPop(){
+      var vy = viewDate.getFullYear(), vm = viewDate.getMonth();
+      var first = new Date(vy, vm, 1);
+      var gridStart = addDays(first, -first.getDay());
+      var todayISO = toISO(todayDate());
+      var html = '<div class="dpick-head">' +
+        '<button type="button" data-nav="-1">◀</button>' +
+        '<span class="ym">' + vy + '年' + (vm + 1) + '月</span>' +
+        '<button type="button" data-nav="1">▶</button>' +
+        '</div><div class="dpick-grid">';
+      WD.forEach(function(w){ html += '<div class="dpick-wd">' + w + '</div>'; });
+      for (var i = 0; i < 42; i++) {
+        var d = addDays(gridStart, i);
+        var iso = toISO(d);
+        var cls = "dpick-day";
+        if (d.getMonth() !== vm) cls += " other";
+        if (iso === todayISO) cls += " today";
+        if (iso === selected) cls += " selected";
+        html += '<div class="' + cls + '" data-iso="' + iso + '">' + d.getDate() + '</div>';
+      }
+      html += '</div><div class="dpick-foot"><button type="button" class="ghost" data-today="1">今日</button><button type="button" class="ghost" data-close="1">閉じる</button></div>';
+      pop.innerHTML = html;
+
+      Array.prototype.forEach.call(pop.querySelectorAll("[data-nav]"), function(b){
+        b.addEventListener("click", function(ev){
+          ev.stopPropagation();
+          viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + parseInt(b.getAttribute("data-nav"), 10), 1);
+          renderPop();
+          positionPop();
+        });
+      });
+      Array.prototype.forEach.call(pop.querySelectorAll(".dpick-day"), function(c){
+        c.addEventListener("click", function(ev){
+          ev.stopPropagation();
+          selected = c.getAttribute("data-iso");
+          refreshBtn();
+          closePop();
+          btn.dispatchEvent(new Event("datepick"));
+        });
+      });
+      var todayBtn = pop.querySelector("[data-today]");
+      if (todayBtn) todayBtn.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        viewDate = new Date(todayDate().getFullYear(), todayDate().getMonth(), 1);
+        renderPop();
+        positionPop();
+      });
+      var closeBtn = pop.querySelector("[data-close]");
+      if (closeBtn) closeBtn.addEventListener("click", function(ev){ ev.stopPropagation(); closePop(); });
+    }
+
+    function positionPop(){
+      var r = btn.getBoundingClientRect();
+      var pr = pop.getBoundingClientRect();
+      var left = r.left;
+      var top = r.bottom + 6;
+      if (left + pr.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pr.width - 8);
+      if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
+      if (top < 8) top = 8;
+      pop.style.left = left + "px";
+      pop.style.top = top + "px";
+    }
+
+    function onDocClick(ev){
+      if (!container.contains(ev.target) && !pop.contains(ev.target)) closePop();
+    }
+    function onKey(ev){ if (ev.key === "Escape") closePop(); }
+    function onScroll(ev){
+      if (pop.contains(ev.target)) return;
+      closePop();
+    }
+
+    function openPop(){
+      if (open) return;
+      viewDate = selected ? parseISO(selected) : todayDate();
+      viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+      renderPop();
+      pop.classList.add("open");
+      positionPop();
+      open = true;
+      document.addEventListener("mousedown", onDocClick, true);
+      document.addEventListener("keydown", onKey, true);
+      window.addEventListener("scroll", onScroll, true);
+    }
+    function closePop(){
+      if (!open) return;
+      pop.classList.remove("open");
+      open = false;
+      document.removeEventListener("mousedown", onDocClick, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, true);
+    }
+
+    btn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      if (open) closePop(); else openPop();
+    });
+
+    refreshBtn();
+
+    return {
+      get: function(){ return selected; },
+      set: function(iso){ selected = iso || ""; refreshBtn(); },
+      onChange: function(fn){ btn.addEventListener("datepick", fn); }
+    };
+  }
+
+  var startPicker = createDatePicker(document.getElementById("dpStart"));
+  var duePicker = createDatePicker(document.getElementById("dpDue"));
+
+  // ---------- Modal ----------
+  var backdrop = document.getElementById("modalBackdrop");
+
+  function setTab(tab){
+    Array.prototype.forEach.call(document.querySelectorAll(".tab-btn"), function(b){
+      b.classList.toggle("active", b.getAttribute("data-tab") === tab);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".tab-panel"), function(p){
+      p.classList.toggle("active", p.getAttribute("data-panel") === tab);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".tab-btn"), function(b){
+    b.addEventListener("click", function(){ setTab(b.getAttribute("data-tab")); });
+  });
+
+  function openModal(id, tab){
+    var t = id ? state.tasks.find(function(x){ return x.id === id; }) : null;
+    state.isNew = !t;
+    state.editingId = t ? t.id : uid();
+
+    document.getElementById("modalTitle").textContent = t ? "タスクを編集" : "新規タスク";
+    document.getElementById("fAssignee").value = t ? t.assignee : "";
+    document.getElementById("fContent").value = t ? t.content : "";
+    startPicker.set(t ? t.start : toISO(todayDate()));
+    duePicker.set(t ? t.due : toISO(todayDate()));
+    document.getElementById("fDone").checked = t ? !!t.done : false;
+    document.getElementById("fCancel").value = t ? (t.cancelReason || "") : "";
+    document.getElementById("fErr").textContent = "";
+    document.getElementById("btnDelete").style.display = t ? "inline-flex" : "none";
+
+    state.modalLinks = t ? t.links.map(function(l){ return { label: l.label, path: l.path }; }) : [];
+
+    renderLinkRows();
+    renderRelList();
+    var connectBtn = document.getElementById("btnConnect");
+    connectBtn.disabled = state.isNew;
+    connectBtn.title = state.isNew ? "先に一度保存すると、つながりを設定できます" : "";
+    document.getElementById("relHint").textContent = state.isNew
+      ? "先に一度保存すると、他のタスクとのつながりを設定できます。"
+      : "現在つながっているタスク。ボタンを押すとこの画面が閉じるので、つなげたいタスクをガントチャート上でクリックしてください。";
+    setTab(tab === "links" ? "links" : "basic");
+
+    backdrop.classList.add("open");
+    document.getElementById("fAssignee").focus();
+  }
+  function closeModal(){ backdrop.classList.remove("open"); state.editingId = null; state.isNew = false; }
+
+  function renderLinkRows(){
+    var wrap = document.getElementById("linkRows");
+    if (state.modalLinks.length === 0) {
+      wrap.innerHTML = '<p class="hintline">まだリンクがありません。</p>';
+      return;
+    }
+    wrap.innerHTML = state.modalLinks.map(function(l, i){
+      return '<div class="link-row" data-i="' + i + '">' +
+        '<input type="text" class="label-input" data-i="' + i + '" data-f="label" placeholder="ラベル" value="' + escapeHtml(l.label) + '">' +
+        '<input type="text" data-i="' + i + '" data-f="path" placeholder="パス または URL" value="' + escapeHtml(l.path) + '">' +
+        '<a class="lbtn" href="' + escapeHtml(toHref(l.path)) + '" target="_blank" rel="noopener noreferrer" title="開く">開く</a>' +
+        '<button type="button" class="ghost lbtn danger-text" data-i="' + i + '" data-act="del">✕</button>' +
+      '</div>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll("input"), function(inp){
+      inp.addEventListener("input", function(){
+        var i = parseInt(inp.getAttribute("data-i"), 10);
+        var f = inp.getAttribute("data-f");
+        state.modalLinks[i][f] = inp.value;
+        if (f === "path") {
+          var row = inp.closest(".link-row");
+          var a = row ? row.querySelector("a.lbtn") : null;
+          if (a) a.setAttribute("href", toHref(inp.value));
+        }
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('[data-act="del"]'), function(btn){
+      btn.addEventListener("click", function(){
+        var i = parseInt(btn.getAttribute("data-i"), 10);
+        state.modalLinks.splice(i, 1);
+        renderLinkRows();
+      });
+    });
+  }
+  document.getElementById("btnAddLink").addEventListener("click", function(){
+    state.modalLinks.push({ label: "", path: "" });
+    renderLinkRows();
+  });
+
+  function addRelation(idA, idB){
+    var a = state.tasks.find(function(x){ return x.id === idA; });
+    var b = state.tasks.find(function(x){ return x.id === idB; });
+    if (!a || !b || idA === idB) return;
+    if (a.relations.indexOf(idB) === -1) a.relations.push(idB);
+    if (b.relations.indexOf(idA) === -1) b.relations.push(idA);
+    saveTasks();
+  }
+  function removeRelation(idA, idB){
+    var a = state.tasks.find(function(x){ return x.id === idA; });
+    var b = state.tasks.find(function(x){ return x.id === idB; });
+    if (a) a.relations = a.relations.filter(function(r){ return r !== idB; });
+    if (b) b.relations = b.relations.filter(function(r){ return r !== idA; });
+    saveTasks();
+  }
+
+  function renderRelList(){
+    var wrap = document.getElementById("relList");
+    var self = state.tasks.find(function(x){ return x.id === state.editingId; });
+    var relIds = self ? self.relations : [];
+    var related = relIds
+      .map(function(id){ return state.tasks.find(function(x){ return x.id === id; }); })
+      .filter(Boolean)
+      .sort(function(a,b){
+        if (a.assignee !== b.assignee) return a.assignee < b.assignee ? -1 : 1;
+        return parseISO(a.due) - parseISO(b.due);
+      });
+    if (related.length === 0) {
+      wrap.innerHTML = '<div class="rel-empty">まだつながりがありません。</div>';
+      return;
+    }
+    wrap.innerHTML = related.map(function(o){
+      return '<div class="rel-item"><span class="ra">' + escapeHtml(o.assignee) + '</span>' +
+        '<span class="rc">' + escapeHtml(o.content) + '</span>' +
+        '<button type="button" class="rel-del" data-id="' + o.id + '" title="つながりを解除">✕</button></div>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll(".rel-del"), function(btn){
+      btn.addEventListener("click", function(){
+        removeRelation(state.editingId, btn.getAttribute("data-id"));
+        renderRelList();
+        renderAll();
+      });
+    });
+  }
+
+  document.getElementById("btnAdd").addEventListener("click", function(){ openModal(null, "basic"); });
+  document.getElementById("btnCancelModal").addEventListener("click", closeModal);
+  backdrop.addEventListener("click", function(ev){ if (ev.target === backdrop) closeModal(); });
+  document.addEventListener("keydown", function(ev){ if (ev.key === "Escape" && backdrop.classList.contains("open")) closeModal(); });
+
+  document.getElementById("btnSave").addEventListener("click", function(){
+    var assignee = document.getElementById("fAssignee").value.trim();
+    var content = document.getElementById("fContent").value.trim();
+    var start = startPicker.get();
+    var due = duePicker.get();
+    var done = document.getElementById("fDone").checked;
+    var cancelReason = document.getElementById("fCancel").value.trim();
+    var err = document.getElementById("fErr");
+
+    if (!assignee || !content || !start || !due) {
+      err.textContent = "担当者・内容・開始日・期限はすべて入力してください。";
+      setTab("basic");
+      return;
+    }
+    if (parseISO(due) < parseISO(start)) {
+      err.textContent = "期限は開始日以降の日付にしてください。";
+      setTab("basic");
+      return;
+    }
+    var cleanLinks = state.modalLinks
+      .map(function(l){ return { label: (l.label||"").trim(), path: (l.path||"").trim() }; })
+      .filter(function(l){ return l.label || l.path; });
+
+    var id = state.editingId;
+    if (state.isNew) {
+      state.tasks.push({
+        id: id, taskNo: generateTaskNo(assignee), assignee: assignee, content: content, start: start, due: due,
+        done: done, cancelReason: cancelReason, links: cleanLinks, relations: []
+      });
+    } else {
+      var t = state.tasks.find(function(x){ return x.id === id; });
+      var oldVals = { assignee: t.assignee, content: t.content, start: t.start, due: t.due };
+      t.assignee = assignee; t.content = content; t.start = start; t.due = due;
+      t.done = done; t.cancelReason = cancelReason; t.links = cleanLinks;
+      maybeSendUpdateMail(t, oldVals);
+    }
+
+    saveTasks();
+    closeModal();
+    renderAll();
+  });
+
+  document.getElementById("btnDelete").addEventListener("click", function(){
+    if (!state.editingId || state.isNew) return;
+    var t = state.tasks.find(function(x){ return x.id === state.editingId; });
+    if (t && confirm('「' + t.content + '」を削除しますか？（つながり・リンクも削除されます）')) {
+      var id = state.editingId;
+      state.tasks.forEach(function(x){ x.relations = x.relations.filter(function(r){ return r !== id; }); });
+      state.tasks = state.tasks.filter(function(x){ return x.id !== id; });
+      saveTasks();
+      closeModal();
+      renderAll();
+    }
+  });
+
+  // ---------- Connect mode (close modal, click a task in the Gantt to link) ----------
+  var connectBanner = document.getElementById("connectBanner");
+  var connectSvg = document.getElementById("connectPreview");
+  var connectPath = document.getElementById("connectPreviewPath");
+  var connectDot = document.getElementById("connectPreviewDot");
+  var connectSourceEl = null;
+
+  function connectAnchor(){
+    var r = connectSourceEl.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  function updatePreviewLine(mx, my){
+    var a = connectAnchor();
+    var midx = (a.x + mx) / 2;
+    connectPath.setAttribute("d", "M " + a.x + "," + a.y + " C " + midx + "," + a.y + " " + midx + "," + my + " " + mx + "," + my);
+    connectDot.setAttribute("cx", mx);
+    connectDot.setAttribute("cy", my);
+  }
+
+  var lastMouseX = 0, lastMouseY = 0;
+  var connectHintEl = null;
+  function updateHoverHint(clientX, clientY){
+    var under = document.elementFromPoint(clientX, clientY);
+    var hit = under && under.closest ? under.closest(".g-bar[data-id]") : null;
+    if (hit && hit.getAttribute("data-id") === state.connectSourceId) hit = null;
+    if (hit !== connectHintEl) {
+      if (connectHintEl) connectHintEl.classList.remove("connect-target-hint");
+      if (hit) hit.classList.add("connect-target-hint");
+      connectHintEl = hit;
+    }
+  }
+  function onConnectMouseMove(ev){
+    lastMouseX = ev.clientX; lastMouseY = ev.clientY;
+    updatePreviewLine(lastMouseX, lastMouseY);
+    updateHoverHint(lastMouseX, lastMouseY);
+  }
+  function onConnectScroll(){ updatePreviewLine(lastMouseX, lastMouseY); }
+  function onConnectKeydown(ev){ if (ev.key === "Escape") exitConnectMode(true); }
+  function onConnectClick(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    var hit = ev.target.closest ? ev.target.closest(".g-bar[data-id], .task-text[data-id]") : null;
+    var sourceId = state.connectSourceId;
+    if (hit) {
+      var targetId = hit.getAttribute("data-id");
+      if (targetId !== sourceId) {
+        addRelation(sourceId, targetId);
+      }
+    }
+    exitConnectMode(true);
+  }
+
+  function enterConnectMode(sourceId){
+    var barEl = document.querySelector('.g-bar[data-id="' + sourceId + '"]');
+    if (!barEl) {
+      alert("この担当者が現在フィルタで非表示のため接続できません。フィルタを解除してから試してください。");
+      return;
+    }
+    connectSourceEl = barEl;
+    state.connectSourceId = sourceId;
+    closeModal();
+    connectBanner.classList.add("on");
+    connectSvg.classList.add("on");
+    document.body.style.cursor = "crosshair";
+    var a = connectAnchor();
+    lastMouseX = a.x; lastMouseY = a.y;
+    updatePreviewLine(lastMouseX, lastMouseY);
+    document.addEventListener("mousemove", onConnectMouseMove, true);
+    document.addEventListener("keydown", onConnectKeydown, true);
+    document.addEventListener("click", onConnectClick, true);
+    document.getElementById("ganttWrap").addEventListener("scroll", onConnectScroll, true);
+    window.addEventListener("scroll", onConnectScroll, true);
+  }
+  function exitConnectMode(reopen){
+    var sourceId = state.connectSourceId;
+    if (!sourceId) return;
+    state.connectSourceId = null;
+    connectSourceEl = null;
+    if (connectHintEl) { connectHintEl.classList.remove("connect-target-hint"); connectHintEl = null; }
+    connectBanner.classList.remove("on");
+    connectSvg.classList.remove("on");
+    document.body.style.cursor = "";
+    document.removeEventListener("mousemove", onConnectMouseMove, true);
+    document.removeEventListener("keydown", onConnectKeydown, true);
+    document.removeEventListener("click", onConnectClick, true);
+    document.getElementById("ganttWrap").removeEventListener("scroll", onConnectScroll, true);
+    window.removeEventListener("scroll", onConnectScroll, true);
+    renderAll();
+    if (reopen) openModal(sourceId, "links");
+  }
+
+  document.getElementById("btnConnect").addEventListener("click", function(){
+    if (state.isNew || !state.editingId) return;
+    enterConnectMode(state.editingId);
+  });
+
+  // ---------- Member search ----------
+  document.getElementById("memberSearch").addEventListener("input", function(ev){
+    state.memberSearch = ev.target.value;
+    applyMemberSearchHighlight();
+  });
+
+  // ---------- Mail notify toggle ----------
+  document.getElementById("mailToggle").addEventListener("change", function(ev){
+    state.mailNotifyEnabled = ev.target.checked;
+    localStorage.setItem(STORE_MAIL_ENABLED, state.mailNotifyEnabled ? "1" : "0");
+  });
+
+  // ---------- Member email management modal ----------
+  var emailModal = document.getElementById("emailModalBackdrop");
+  function renderEmailRows(){
+    var wrap = document.getElementById("emailRows");
+    var names = assigneeOrder();
+    if (names.length === 0) {
+      wrap.innerHTML = '<p class="hintline">まだメンバーがいません。</p>';
+      return;
+    }
+    wrap.innerHTML = names.map(function(a){
+      return '<div class="link-row"><span style="width:100px;flex:none;font-size:12.5px;">' + escapeHtml(a) + '</span>' +
+        '<input type="text" data-assignee="' + escapeHtml(a) + '" placeholder="example@company.co.jp" value="' +
+        escapeHtml(assigneeEmailMap[a] || "") + '"></div>';
+    }).join("");
+  }
+  document.getElementById("btnEmailManage").addEventListener("click", function(){
+    renderEmailRows();
+    emailModal.classList.add("open");
+  });
+  document.getElementById("btnEmailCancel").addEventListener("click", function(){ emailModal.classList.remove("open"); });
+  emailModal.addEventListener("click", function(ev){ if (ev.target === emailModal) emailModal.classList.remove("open"); });
+  document.getElementById("btnEmailSave").addEventListener("click", function(){
+    Array.prototype.forEach.call(document.querySelectorAll("#emailRows input"), function(inp){
+      var a = inp.getAttribute("data-assignee");
+      var v = inp.value.trim();
+      if (v) assigneeEmailMap[a] = v; else delete assigneeEmailMap[a];
+    });
+    saveAssigneeEmailMap();
+    emailModal.classList.remove("open");
+  });
+
+  // ---------- Toolbar ----------
+  document.getElementById("zoomIn").addEventListener("click", function(){
+    state.dayWidth = Math.min(48, state.dayWidth + 4);
+    saveZoom(); renderGantt();
+    document.getElementById("zoomLabel").textContent = state.dayWidth + "px";
+  });
+  document.getElementById("zoomOut").addEventListener("click", function(){
+    state.dayWidth = Math.max(14, state.dayWidth - 4);
+    saveZoom(); renderGantt();
+    document.getElementById("zoomLabel").textContent = state.dayWidth + "px";
+  });
+  document.getElementById("btnToday").addEventListener("click", function(){
+    var todayCol = document.querySelector(".g-day.today");
+    if (todayCol) {
+      todayCol.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    } else {
+      alert("表示中のタスク期間の範囲外のため、今日の位置は表示できません。");
+    }
+  });
+
+  document.getElementById("btnReset").addEventListener("click", function(){
+    if (confirm("すべてのタスクを初期データ（サンプルデータ）に戻します。担当者番号も振り直されます。よろしいですか？")) {
+      assigneeNoMap = {};
+      usedTaskNos = {};
+      saveAssigneeNoMap();
+      state.tasks = seedData();
+      state.hidden = {};
+      saveTasks(); saveHidden();
+      renderAll();
+    }
+  });
+
+  function fileStamp(){
+    var d = new Date();
+    return toISO(d) + "_" + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+
+  document.getElementById("btnExport").addEventListener("click", function(){
+    var blob = new Blob([JSON.stringify(state.tasks, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    var stamp = fileStamp();
+    a.href = url; a.download = "taskboard_" + stamp + ".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  function csvEscape(v){
+    var s = String(v == null ? "" : v);
+    if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function formatLinksForExport(links){
+    return (links || []).map(function(l){
+      var lbl = (l.label || "").trim(), p = (l.path || "").trim();
+      if (lbl && p) return lbl + "(" + p + ")";
+      return lbl || p;
+    }).filter(Boolean).join(" / ");
+  }
+  function formatRelationsForExport(relations){
+    return (relations || []).map(function(rid){
+      var rt = state.tasks.find(function(x){ return x.id === rid; });
+      return rt ? rt.taskNo : null;
+    }).filter(Boolean).join(", ");
+  }
+  function buildCsv(){
+    var header = ["タスク番号", "担当者名", "タスク名", "開始", "終了", "リンク先", "つながり(タスク番号)"];
+    var rows = state.tasks.slice()
+      .sort(function(a, b){ return (a.taskNo || "") < (b.taskNo || "") ? -1 : 1; })
+      .map(function(t){
+        return [t.taskNo, t.assignee, t.content, t.start, t.due,
+          formatLinksForExport(t.links), formatRelationsForExport(t.relations)];
+      });
+    return [header].concat(rows).map(function(cols){ return cols.map(csvEscape).join(","); }).join("\r\n");
+  }
+  document.getElementById("btnExportCsv").addEventListener("click", function(){
+    var csv = "﻿" + buildCsv();
+    var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    var stamp = fileStamp();
+    a.href = url; a.download = "taskboard_" + stamp + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("btnImport").addEventListener("click", function(){
+    document.getElementById("fileImport").click();
+  });
+  document.getElementById("fileImport").addEventListener("change", function(ev){
+    var file = ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var data = JSON.parse(reader.result);
+        if (!Array.isArray(data)) throw new Error("invalid");
+        var ok = data.every(function(t){ return t && t.assignee && t.content && t.start && t.due; });
+        if (!ok) throw new Error("invalid");
+        registerExistingTaskNos(data);
+        data.forEach(normalizeTask);
+        if (confirm(data.length + "件のタスクを読み込みます。現在のデータを置き換えますか？（キャンセルで中止）")) {
+          state.tasks = data;
+          state.hidden = {};
+          saveTasks(); saveHidden();
+          renderAll();
+        }
+      } catch (e) {
+        alert("ファイルの読み込みに失敗しました。書き出し機能で作成したJSONファイルを指定してください。");
+      }
+      ev.target.value = "";
+    };
+    reader.readAsText(file, "utf-8");
+  });
+
+  // ---------- Gantt top scrollbar sync ----------
+  (function(){
+    var top = document.getElementById("ganttTopScroll");
+    var wrap = document.getElementById("ganttWrap");
+    var syncing = false;
+    top.addEventListener("scroll", function(){
+      if (syncing) return;
+      syncing = true;
+      wrap.scrollLeft = top.scrollLeft;
+      syncing = false;
+    });
+    wrap.addEventListener("scroll", function(){
+      if (syncing) return;
+      syncing = true;
+      top.scrollLeft = wrap.scrollLeft;
+      syncing = false;
+    });
+  })();
+
+  // ---------- Editable Gantt title ----------
+  (function(){
+    var wrap = document.getElementById("ganttTitleWrap");
+    var current = localStorage.getItem(STORE_GANTT_TITLE) || "ガントチャート";
+
+    function renderTitle(){
+      wrap.innerHTML = '<span class="editable-title" tabindex="0" title="クリックで名前を変更">' + escapeHtml(current) + '</span>';
+      wrap.querySelector(".editable-title").addEventListener("click", startEdit);
+      wrap.querySelector(".editable-title").addEventListener("keydown", function(ev){
+        if (ev.key === "Enter") startEdit();
+      });
+    }
+    function startEdit(){
+      wrap.innerHTML = '<input type="text" class="title-edit-input" value="' + escapeHtml(current) + '">';
+      var input = wrap.querySelector("input");
+      input.focus(); input.select();
+      input.addEventListener("keydown", function(ev){
+        if (ev.key === "Enter") input.blur();
+        if (ev.key === "Escape") { input.dataset.cancel = "1"; input.blur(); }
+      });
+      input.addEventListener("blur", function(){
+        if (input.dataset.cancel !== "1") {
+          var v = input.value.trim();
+          current = v || "ガントチャート";
+          localStorage.setItem(STORE_GANTT_TITLE, current);
+        }
+        renderTitle();
+      });
+    }
+    renderTitle();
+  })();
+
+  // ---------- Portability guide (opens in a new window) ----------
+  document.getElementById("btnPortGuide").addEventListener("click", function(){
+    var w = window.open("", "_blank", "width=560,height=680");
+    if (!w) { alert("ポップアップがブロックされました。ブラウザの設定でこのページのポップアップを許可してください。"); return; }
+    w.document.title = "他のPCにコピーして使う方法";
+    w.document.write(
+      '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">' +
+      '<style>' +
+      'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px;line-height:1.9;color:#0b0b0b;background:#fcfcfb;max-width:560px;}' +
+      'h2{font-size:17px;margin:0 0 14px;}' +
+      'ol{padding-left:22px;font-size:13.5px;}' +
+      'li{margin-bottom:6px;}' +
+      'p.note{font-size:12px;color:#52514e;margin-top:18px;line-height:1.8;}' +
+      '</style></head><body>' +
+      '<h2>💻 他のPCにコピーして使う方法</h2>' +
+      '<ol>' +
+      '<li>このPCで「書き出し (JSON)」を押し、taskboard_日付.json を保存する（今のタスク内容の完全なバックアップです）。</li>' +
+      '<li>この taskboard.html ファイルと、①で保存した .json ファイルの両方を、USBメモリや共有フォルダなどで別のPCにコピーする。</li>' +
+      '<li>別のPCで taskboard.html をダブルクリックして開く（インストール作業は不要です）。</li>' +
+      '<li>ツールバーの「読み込み (JSON)」を押し、②の .json ファイルを選ぶと、今のタスクがそのまま復元されます。</li>' +
+      '</ol>' +
+      '<p class="note">' +
+      '※ taskboard.html だけをコピーした場合、データはブラウザごとに保存されているため引き継がれません（サンプルの初期データが表示されます）。必ず JSON もあわせてコピーしてください。<br>' +
+      '※ 逆に、他のPCで入力した内容をこのPCに戻したいときも同じ手順（そのPCで書き出し → こちらで読み込み）で行えます。<br>' +
+      '※ 外部サーバーには一切送信されません。ファイルコピーのみで完結します。' +
+      '</p>' +
+      '</body></html>'
+    );
+    w.document.close();
+  });
+
+  // ---------- Init ----------
+  load();
+  document.getElementById("mailToggle").checked = state.mailNotifyEnabled;
+  renderAll();
+})();
+</script>
+</body>
+</html>
