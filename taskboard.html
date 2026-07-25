@@ -115,8 +115,13 @@
   }
   .mail-toggle input { cursor: pointer; }
 
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
-  .legend .item { display: flex; align-items: center; gap: 5px; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
+  .legend .item {
+    display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
+    padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-1);
+  }
+  .legend .item:hover { background: var(--weekend-tint); }
+  .legend .item.off { opacity: .4; }
   .legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
 
   .member-search-row { margin-bottom: 8px; }
@@ -414,12 +419,12 @@
   <button id="btnReset" class="ghost">初期データに戻す</button>
 </div>
 
-<div class="legend">
-  <span class="item"><span class="sw" style="background:var(--st-safe)"></span>余裕あり</span>
-  <span class="item"><span class="sw" style="background:var(--st-warn)"></span>期限間近（1週間以内）</span>
-  <span class="item"><span class="sw" style="background:var(--st-overdue)"></span>期限超過</span>
-  <span class="item"><span class="sw" style="background:var(--st-done)"></span>完了</span>
-  <span class="item"><span class="sw" style="background:var(--st-cancel)"></span>不要（理由あり）</span>
+<div class="legend" title="クリックでその状態のタスクを表示/非表示にできます">
+  <span class="item" data-status="safe"><span class="sw" style="background:var(--st-safe)"></span>余裕あり</span>
+  <span class="item" data-status="warn"><span class="sw" style="background:var(--st-warn)"></span>期限間近（1週間以内）</span>
+  <span class="item" data-status="overdue"><span class="sw" style="background:var(--st-overdue)"></span>期限超過</span>
+  <span class="item" data-status="done"><span class="sw" style="background:var(--st-done)"></span>完了</span>
+  <span class="item" data-status="cancelled"><span class="sw" style="background:var(--st-cancel)"></span>不要（理由あり）</span>
 </div>
 
 
@@ -552,6 +557,7 @@
   var STORE_GANTT_TITLE = "stb_gantt_title_v1";
   var STORE_ASSIGNEE_EMAIL = "stb_assignee_email_v1";
   var STORE_MAIL_ENABLED = "stb_mail_notify_v1";
+  var STORE_STATUS_HIDDEN = "stb_status_hidden_v1";
   var LEGACY_STORE_TASKS = "stb_tasks_v1";
 
   // ---------- Seed data ----------
@@ -641,6 +647,7 @@
   var state = {
     tasks: [],
     hidden: {},
+    statusHidden: { cancelled: true },
     collapsed: {},
     memberSearch: "",
     mailNotifyEnabled: true,
@@ -750,6 +757,9 @@
     }
     return "safe";
   }
+  function isTaskVisible(t){
+    return !state.hidden[t.assignee] && !state.statusHidden[statusOf(t)];
+  }
 
   // ---------- Outlook draft mail on change (mailto:) ----------
   function fmtMD(iso){
@@ -817,6 +827,8 @@
     if (hraw) { try { state.hidden = JSON.parse(hraw); } catch(e){ state.hidden = {}; } }
     var craw = localStorage.getItem(STORE_COLLAPSED);
     if (craw) { try { state.collapsed = JSON.parse(craw); } catch(e){ state.collapsed = {}; } }
+    var sraw = localStorage.getItem(STORE_STATUS_HIDDEN);
+    if (sraw) { try { state.statusHidden = JSON.parse(sraw); } catch(e){ state.statusHidden = { cancelled: true }; } }
     var zraw = localStorage.getItem(STORE_ZOOM);
     if (zraw) { var z = parseInt(zraw,10); if (z >= 14 && z <= 48) state.dayWidth = z; }
     var theme = localStorage.getItem(STORE_THEME);
@@ -825,6 +837,7 @@
   function saveTasks(){ localStorage.setItem(STORE_TASKS, JSON.stringify(state.tasks)); }
   function saveHidden(){ localStorage.setItem(STORE_HIDDEN, JSON.stringify(state.hidden)); }
   function saveCollapsed(){ localStorage.setItem(STORE_COLLAPSED, JSON.stringify(state.collapsed)); }
+  function saveStatusHidden(){ localStorage.setItem(STORE_STATUS_HIDDEN, JSON.stringify(state.statusHidden)); }
   function saveZoom(){ localStorage.setItem(STORE_ZOOM, String(state.dayWidth)); }
 
   // ---------- Render: filter chips ----------
@@ -858,10 +871,10 @@
   // ---------- Render: Gantt ----------
   function renderGantt(){
     var inner = document.getElementById("ganttInner");
-    var visible = state.tasks.filter(function(t){ return !state.hidden[t.assignee]; });
+    var visible = state.tasks.filter(isTaskVisible);
 
     if (visible.length === 0) {
-      inner.innerHTML = '<div class="gantt-empty">表示できるタスクがありません。「＋ 新規タスク」から追加してください。</div>';
+      inner.innerHTML = '<div class="gantt-empty">表示できるタスクがありません。凡例やメンバーの絞り込みを確認するか、「＋ 新規タスク」から追加してください。</div>';
       inner.style.display = "block";
       inner.style.gridTemplateColumns = "";
       inner.style.gridTemplateRows = "";
@@ -873,11 +886,11 @@
     var order = assigneeOrder().filter(function(a){ return !state.hidden[a]; });
     var groups = order.map(function(a){
       var tasks = state.tasks
-        .filter(function(t){ return t.assignee === a; })
+        .filter(function(t){ return t.assignee === a && isTaskVisible(t); })
         .slice()
         .sort(function(x,y){ return parseISO(x.start) - parseISO(y.start); });
       return { assignee: a, tasks: tasks };
-    });
+    }).filter(function(g){ return g.tasks.length > 0; });
 
     var minStart = null, maxDue = null;
     state.tasks.forEach(function(t){
@@ -1134,12 +1147,12 @@
   // ---------- Render: table ----------
   function renderTable(){
     var body = document.getElementById("taskTableBody");
-    var rows = state.tasks.slice().sort(function(a,b){
+    var rows = state.tasks.filter(function(t){ return !state.statusHidden[statusOf(t)]; }).sort(function(a,b){
       if (a.assignee !== b.assignee) return a.assignee < b.assignee ? -1 : 1;
       return parseISO(a.due) - parseISO(b.due);
     });
     if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:16px;">タスクがありません</td></tr>';
+      body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:16px;">表示できるタスクがありません（凡例の絞り込みで隠れている可能性があります）</td></tr>';
       return;
     }
     body.innerHTML = rows.map(function(t){
@@ -1199,8 +1212,24 @@
     renderGantt();
     renderTable();
     renderAssigneeDatalist();
+    applyLegendState();
     document.getElementById("zoomLabel").textContent = state.dayWidth + "px";
   }
+
+  // ---------- Legend as status filter ----------
+  function applyLegendState(){
+    Array.prototype.forEach.call(document.querySelectorAll(".legend .item[data-status]"), function(el){
+      el.classList.toggle("off", !!state.statusHidden[el.getAttribute("data-status")]);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".legend .item[data-status]"), function(el){
+    el.addEventListener("click", function(){
+      var st = el.getAttribute("data-status");
+      state.statusHidden[st] = !state.statusHidden[st];
+      saveStatusHidden();
+      renderAll();
+    });
+  });
 
   // ---------- Date picker (custom calendar popover, no native input[type=date]) ----------
   function createDatePicker(container){
