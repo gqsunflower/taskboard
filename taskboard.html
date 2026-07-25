@@ -803,6 +803,9 @@
     state.tasks.forEach(function(t){
       if (t.assignee && seen.indexOf(t.assignee) === -1) seen.push(t.assignee);
     });
+    // タスクの追加・削除順ではなく、担当者番号（初回登録時に一度だけ振られ、
+    // 以後は不変）で並べることで、チップやガント上の順序を安定させる。
+    seen.sort(function(a, b){ return getAssigneeNo(a) - getAssigneeNo(b); });
     return seen;
   }
 
